@@ -71,8 +71,8 @@ class ChatCompletionRequest(BaseModel):
         default=None, description="Optional session ID for conversation continuity"
     )
     enable_tools: Optional[bool] = Field(
-        default=False,
-        description="Enable Claude Code tools (Read, Write, Bash, etc.) - disabled by default for OpenAI compatibility",
+        default=True,
+        description="Enable Claude Code tools and skills (Read, Write, Bash, Skill, etc.) - enabled by default",
     )
     stream_options: Optional[StreamOptions] = Field(
         default=None, description="Options for streaming responses"

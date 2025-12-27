@@ -45,6 +45,9 @@ htmlcov/
 # Claude Code
 .claude/
 
+# Workspace (user-specific skills and files)
+workspace/
+
 # Development documentation
 IMPLEMENTATION_PLAN.md
 CLAUDE.md

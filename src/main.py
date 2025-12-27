@@ -378,14 +378,17 @@ async def generate_streaming_response(
         if claude_options.get("model"):
             ParameterValidator.validate_model(claude_options["model"])
 
-        # Handle tools - disabled by default for OpenAI compatibility
-        if not request.enable_tools:
-            # Disable all tools by using CLAUDE_TOOLS constant
+        # Handle tools - enabled by default for skills support
+        if request.enable_tools is False:
+            # Explicitly disabled - no tools
             claude_options["disallowed_tools"] = CLAUDE_TOOLS
             claude_options["max_turns"] = 1  # Single turn for Q&A
-            logger.info("Tools disabled (default behavior for OpenAI compatibility)")
+            logger.info("Tools explicitly disabled by request")
         else:
-            logger.info("Tools enabled by user request")
+            # Default: tools enabled
+            effective_tools = tool_manager.get_effective_tools(request.session_id)
+            claude_options["allowed_tools"] = effective_tools
+            logger.info(f"Tools enabled: {effective_tools}")
 
         # Run Claude Code
         chunks_buffer = []
@@ -403,16 +406,24 @@ async def generate_streaming_response(
         ):
             chunks_buffer.append(chunk)
 
+            # Skip intermediate messages (tool use, skill loading)
+            if chunk.get("is_intermediate", False):
+                logger.debug(f"Skipping intermediate chunk: {chunk.get('type')}")
+                continue
+
             # Check if we have an assistant message
             # Handle both old format (type/message structure) and new format (direct content)
             content = None
-            if chunk.get("type") == "assistant" and "message" in chunk:
+            if chunk.get("type") == "assistant" and "content" in chunk:
+                # New format from claude_cli: {"type": "assistant", "content": [...], "is_intermediate": False}
+                content = chunk["content"]
+            elif chunk.get("type") == "assistant" and "message" in chunk:
                 # Old format: {"type": "assistant", "message": {"content": [...]}}
                 message = chunk["message"]
                 if isinstance(message, dict) and "content" in message:
                     content = message["content"]
             elif "content" in chunk and isinstance(chunk["content"], list):
-                # New format: {"content": [TextBlock(...)]}  (converted AssistantMessage)
+                # Fallback format: {"content": [TextBlock(...)]}
                 content = chunk["content"]
 
             if content is not None:
@@ -635,14 +646,17 @@ async def chat_completions(
             if claude_options.get("model"):
                 ParameterValidator.validate_model(claude_options["model"])
 
-            # Handle tools - disabled by default for OpenAI compatibility
-            if not request_body.enable_tools:
-                # Disable all tools by using CLAUDE_TOOLS constant
+            # Handle tools - enabled by default for skills support
+            if request_body.enable_tools is False:
+                # Explicitly disabled - no tools
                 claude_options["disallowed_tools"] = CLAUDE_TOOLS
                 claude_options["max_turns"] = 1  # Single turn for Q&A
-                logger.info("Tools disabled (default behavior for OpenAI compatibility)")
+                logger.info("Tools explicitly disabled by request")
             else:
-                logger.info("Tools enabled by user request")
+                # Default: tools enabled
+                effective_tools = tool_manager.get_effective_tools(request_body.session_id)
+                claude_options["allowed_tools"] = effective_tools
+                logger.info(f"Tools enabled: {effective_tools}")
 
             # Collect all chunks
             chunks = []

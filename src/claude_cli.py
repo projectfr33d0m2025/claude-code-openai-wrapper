@@ -6,7 +6,15 @@ from typing import AsyncGenerator, Dict, Any, Optional, List
 from pathlib import Path
 import logging
 
-from claude_agent_sdk import query, ClaudeAgentOptions
+from claude_agent_sdk import (
+    query,
+    ClaudeAgentOptions,
+    AssistantMessage,
+    ResultMessage,
+    TextBlock,
+    ToolUseBlock,
+    ToolResultBlock,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +124,12 @@ class ClaudeCodeCLI:
 
             try:
                 # Build SDK options
-                options = ClaudeAgentOptions(max_turns=max_turns, cwd=self.cwd)
+                options = ClaudeAgentOptions(
+                    max_turns=max_turns,
+                    cwd=self.cwd,
+                    # Enable skill discovery from user directory (~/.claude/skills/) only
+                    setting_sources=["user"],
+                )
 
                 # Set model if specified
                 if model:
@@ -142,31 +155,64 @@ class ClaudeCodeCLI:
                 elif session_id:
                     options.resume = session_id
 
-                # Run the query and yield messages
+                # Run the query and collect messages
+                # Buffer text content - only yield the final response after tool execution completes
+                buffered_text = []
+                tool_execution_in_progress = False
+                result_message = None
+                
                 async for message in query(prompt=prompt, options=options):
-                    # Debug logging
-                    logger.debug(f"Raw SDK message type: {type(message)}")
-                    logger.debug(f"Raw SDK message: {message}")
-
-                    # Convert message object to dict if needed
-                    if hasattr(message, "__dict__") and not isinstance(message, dict):
-                        # Convert object to dict for consistent handling
-                        message_dict = {}
-
-                        # Get all attributes from the object
-                        for attr_name in dir(message):
-                            if not attr_name.startswith("_"):  # Skip private attributes
-                                try:
-                                    attr_value = getattr(message, attr_name)
-                                    if not callable(attr_value):  # Skip methods
-                                        message_dict[attr_name] = attr_value
-                                except:
-                                    pass
-
-                        logger.debug(f"Converted message dict: {message_dict}")
-                        yield message_dict
-                    else:
-                        yield message
+                    logger.debug(f"Raw SDK message type: {type(message).__name__}")
+                    
+                    if isinstance(message, AssistantMessage):
+                        # Check for tool use
+                        has_tool_use = any(isinstance(block, ToolUseBlock) for block in message.content)
+                        
+                        if has_tool_use:
+                            tool_execution_in_progress = True
+                            # Clear buffer - previous text was intermediate (e.g., skill content)
+                            buffered_text = []
+                            logger.debug("Tool use detected - clearing text buffer")
+                            # Log tool use for debugging
+                            for block in message.content:
+                                if isinstance(block, ToolUseBlock):
+                                    logger.debug(f"Tool: {block.name}")
+                        else:
+                            # Collect text blocks
+                            for block in message.content:
+                                if isinstance(block, TextBlock) and block.text:
+                                    buffered_text.append(block.text)
+                    
+                    elif isinstance(message, ResultMessage):
+                        result_message = message
+                        # Execution complete - yield the final buffered text
+                        if buffered_text:
+                            final_text = "\n".join(buffered_text)
+                            yield {
+                                "type": "assistant",
+                                "content": [{"type": "text", "text": final_text}],
+                                "is_intermediate": False,
+                            }
+                        
+                        # Yield result metadata
+                        yield {
+                            "type": "result",
+                            "subtype": getattr(message, 'subtype', 'success'),
+                            "is_error": getattr(message, 'is_error', False),
+                            "total_cost_usd": getattr(message, 'total_cost_usd', 0.0),
+                            "duration_ms": getattr(message, 'duration_ms', 0),
+                            "num_turns": getattr(message, 'num_turns', 0),
+                            "session_id": getattr(message, 'session_id', None),
+                        }
+                
+                # If no ResultMessage was received but we have buffered text, yield it
+                if result_message is None and buffered_text:
+                    final_text = "\n".join(buffered_text)
+                    yield {
+                        "type": "assistant",
+                        "content": [{"type": "text", "text": final_text}],
+                        "is_intermediate": False,
+                    }
 
             finally:
                 # Restore original environment (if we changed anything)

@@ -33,8 +33,10 @@ DEFAULT_ALLOWED_TOOLS = [
     "Glob",
     "Grep",
     "Bash",
+    "BashOutput",  # Required to get bash command output
     "Write",
     "Edit",
+    "Skill",  # Execute skills from ~/.claude/skills/
 ]
 
 # Tools to disallow by default (potentially dangerous or slow)

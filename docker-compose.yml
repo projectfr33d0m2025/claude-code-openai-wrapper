@@ -7,18 +7,20 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Mount Claude auth tokens (read-write - Claude needs to write session/project data)
-      - ~/.claude:/root/.claude
-      # Optional: Mount a workspace directory for Claude to work with
-      # - ./workspace:/workspace
+      # Mount Claude auth tokens and user skills
+      - ${HOME}/.claude:/root/.claude
+      # Mount workspace for file operations
+      - ./workspace:/workspace
     environment:
       - PORT=8000
       - MAX_TIMEOUT=600000
       - CORS_ORIGINS=["*"]
       - DEFAULT_MODEL=claude-sonnet-4-5-20250929
       - RATE_LIMIT_ENABLED=true
-      # Optional: Set Claude's working directory
-      # - CLAUDE_CWD=/workspace
+      - HOME=/root
+      - VERBOSE=true
+      # Set Claude's working directory
+      - CLAUDE_CWD=/workspace
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
