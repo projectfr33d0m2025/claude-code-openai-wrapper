@@ -4,15 +4,16 @@ An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Cod
 
 ## Version
 
-**Current Version:** 2.1.0 🆕
-- **SDK Upgrade:** Updated to `claude-agent-sdk` v0.1.18 (from v0.1.6)
-- **Simplified Setup:** Claude Code CLI is now bundled with the SDK (no separate Node.js install required!)
-- **Smaller Docker Image:** Removed Node.js/npm dependencies
+**Current Version:** 2.2.0 🆕
+- **Tools Enabled by Default:** Tools and skills now enabled by default for full Claude Code capabilities
+- **Agent Skills Support:** Automatic skill discovery from `~/.claude/skills/`
+- **Improved Message Handling:** Proper SDK message type handling for skill execution
+- **SDK Upgrade:** Claude Agent SDK v0.1.18
 
-**Upgrading from v1.x?**
-1. Pull latest code: `git pull origin main`
-2. Update dependencies: `poetry install`
-3. Restart server - that's it!
+**Previous Version:** 2.1.0
+- SDK Upgrade to `claude-agent-sdk` v0.1.18 (from v0.1.6)
+- Simplified Setup: Claude Code CLI bundled with SDK
+- Smaller Docker Image: Removed Node.js/npm dependencies
 
 **Migration Resources:**
 - [MIGRATION_STATUS.md](./MIGRATION_STATUS.md) - Detailed v2.0.0 migration status
@@ -27,8 +28,9 @@ An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Cod
 - ✅ **Multi-provider authentication** (API key, Bedrock, Vertex AI, CLI auth)
 - ✅ **System prompt support** via SDK options
 - ✅ Model selection support with validation
-- ✅ **Fast by default** - Tools disabled for OpenAI compatibility (5-10x faster)
-- ✅ Optional tool usage (Read, Write, Bash, etc.) when explicitly enabled
+- ✅ **Tools enabled by default** - Full Claude Code capabilities out of the box
+- ✅ **Agent Skills support** - Custom skills from `~/.claude/skills/`
+- ✅ Tool usage (Read, Write, Bash, Skill, etc.) enabled by default
 - ✅ **Real-time cost and token tracking** from SDK
 - ✅ **Session continuity** with conversation history across requests
 - ✅ **Session management endpoints** for full session control
@@ -60,8 +62,9 @@ An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Cod
 
 ### ⚡ **Advanced Features**
 - **System prompt support** via SDK options
-- **Optional tool usage** - Enable Claude Code tools (Read, Write, Bash, etc.) when needed
-- **Fast default mode** - Tools disabled by default for OpenAI API compatibility
+- **Tools enabled by default** - Full Claude Code capabilities (Read, Write, Bash, Skill, etc.)
+- **Agent Skills support** - Custom skills automatically discovered from `~/.claude/skills/`
+- **Optional tool disabling** - Set `enable_tools: false` for simple Q&A mode
 - **Development mode** with auto-reload (`uvicorn --reload`)
 - **Interactive API key protection** - Optional security with auto-generated tokens
 - **Comprehensive logging** and debugging capabilities
@@ -382,16 +385,17 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ~/.claude:/root/.claude
-      - .:/app  # Optional for dev
+      - ~/.claude:/root/.claude  # Auth tokens and user skills
+      - ./workspace:/workspace   # Working directory
     environment:
       - PORT=8000
-      - MAX_TIMEOUT=600
-    command: ["poetry", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]  # Dev example
+      - MAX_TIMEOUT=600000
+      - CLAUDE_CWD=/workspace
     restart: unless-stopped
 ```
 - Run: `docker-compose up -d` (builds if needed, runs detached).
 - Stop: `docker-compose down`.
+- Skills: Place skills in `~/.claude/skills/` on the host - they'll be available in the container.
 
 ### Post-Run Management
 - View Logs: `docker logs claude-wrapper-container` (add `-f` for real-time tailing).
@@ -522,14 +526,35 @@ Report issues on GitHub with logs/image tag/OS details.
 ### Using curl
 
 ```bash
-# Basic chat completion (no auth)
+# Basic chat completion with tools and skills enabled (default)
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-5-20250929",
+    "messages": [
+      {"role": "user", "content": "What is the weather in London?"}
+    ]
+  }'
+
+# Using skills - skills from ~/.claude/skills/ are automatically discovered
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-5-20250929",
+    "messages": [
+      {"role": "user", "content": "Check the weather in Tokyo"}
+    ]
+  }'
+
+# Disable tools for simple Q&A (faster, no tool execution)
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "claude-sonnet-4-5-20250929",
     "messages": [
       {"role": "user", "content": "What is 2 + 2?"}
-    ]
+    ],
+    "enable_tools": false
   }'
 
 # With API key protection (when enabled)
@@ -556,10 +581,7 @@ client = OpenAI(
     api_key="your-api-key-if-required"  # Only needed if protection enabled
 )
 
-# Alternative: Let examples auto-detect authentication
-# The wrapper's example files automatically check server auth status
-
-# Basic chat completion
+# Basic chat completion - tools and skills enabled by default
 response = client.chat.completions.create(
     model="claude-sonnet-4-5-20250929",
     messages=[
@@ -569,18 +591,27 @@ response = client.chat.completions.create(
 )
 
 print(response.choices[0].message.content)
-# Output: Fast response without tool usage (default behaviour)
+# Output: Claude will read your directory and list the files!
 
-# Enable tools when you need them (e.g., to read files)
+# Using skills - automatically discovered from ~/.claude/skills/
 response = client.chat.completions.create(
     model="claude-sonnet-4-5-20250929",
     messages=[
-        {"role": "user", "content": "What files are in the current directory?"}
-    ],
-    extra_body={"enable_tools": True}  # Enable tools for file access
+        {"role": "user", "content": "What's the weather in Singapore?"}
+    ]
 )
 print(response.choices[0].message.content)
-# Output: Claude will actually read your directory and list the files!
+# Output: Uses the weather skill to fetch real-time weather data
+
+# Disable tools for simple Q&A (faster response)
+response = client.chat.completions.create(
+    model="claude-sonnet-4-5-20250929",
+    messages=[
+        {"role": "user", "content": "Explain quantum computing briefly"}
+    ],
+    extra_body={"enable_tools": False}  # Disable tools for simple Q&A
+)
+print(response.choices[0].message.content)
 
 # Check real costs and tokens
 print(f"Cost: ${response.usage.total_tokens * 0.000003:.6f}")  # Real cost tracking
@@ -599,6 +630,72 @@ for chunk in stream:
     if chunk.choices[0].delta.content:
         print(chunk.choices[0].delta.content, end="")
 ```
+
+## Agent Skills
+
+The wrapper supports **Agent Skills** - custom capabilities that extend Claude's functionality. Skills are automatically discovered from `~/.claude/skills/` and can be invoked by Claude when relevant.
+
+### Creating a Skill
+
+1. Create a skill directory:
+   ```bash
+   mkdir -p ~/.claude/skills/my-skill
+   ```
+
+2. Create a `SKILL.md` file with YAML frontmatter:
+   ```markdown
+   ---
+   name: my-skill
+   description: Description of what this skill does and when to use it
+   ---
+
+   # My Skill
+
+   Instructions for Claude on how to use this skill...
+
+   ## Usage
+
+   ```bash
+   # Example commands
+   ```
+   ```
+
+3. The skill will be automatically discovered when the wrapper starts.
+
+### Example: Weather Skill
+
+```markdown
+---
+name: weather
+description: Check real-time weather information using wttr.in service
+---
+
+# Weather
+
+Check weather information using the wttr.in service.
+
+## Quick Weather Check
+
+```bash
+curl -s "wttr.in/{CITY}?format=3"
+```
+
+Example: `curl -s "wttr.in/London?format=3"` returns `London: ☀️ +15°C`
+```
+
+### Skills Directory Structure
+
+```
+~/.claude/skills/
+├── weather/
+│   └── SKILL.md
+├── git-helper/
+│   └── SKILL.md
+└── code-review/
+    └── SKILL.md
+```
+
+Skills are loaded at startup and Claude will automatically use them when the user's request matches the skill's description.
 
 ## Supported Models
 
@@ -736,15 +833,18 @@ See `examples/session_continuity.py` for comprehensive Python examples and `exam
 - **Multiple responses** (`n > 1`) not supported
 
 ### 🛣 **Planned Enhancements** 
-- [ ] **Tool configuration** - allowed/disallowed tools endpoints  
 - [ ] **OpenAI parameter mapping** - temperature, top_p, max_tokens support
 - [ ] **Enhanced streaming** - better chunk handling
 - [ ] **MCP integration** - Model Context Protocol server support
+- [ ] **More pre-built skills** - Common utility skills included
 
-### ✅ **Recent Improvements (v2.0.0)**
-- **✅ Claude Agent SDK Migration**: Upgraded from deprecated `claude-code-sdk` to `claude-agent-sdk` v0.1.18 🆕
-- **✅ Bundled CLI**: No separate Node.js/npm installation required 🆕
-- **✅ Modern SDK Features**: Access to latest SDK capabilities and improvements 🆕
+### ✅ **Recent Improvements (v2.2.0)**
+- **✅ Tools Enabled by Default**: Full Claude Code capabilities out of the box 🆕
+- **✅ Agent Skills Support**: Automatic discovery from `~/.claude/skills/` 🆕
+- **✅ Improved Message Handling**: Proper SDK message types for skill execution 🆕
+- **✅ Claude Agent SDK Migration**: Upgraded from deprecated `claude-code-sdk` to `claude-agent-sdk` v0.1.18
+- **✅ Bundled CLI**: No separate Node.js/npm installation required
+- **✅ Modern SDK Features**: Access to latest SDK capabilities and improvements
 - **✅ SDK Integration**: Official Python SDK replaces subprocess calls
 - **✅ Real Metadata**: Accurate costs and token counts from SDK
 - **✅ Multi-auth**: Support for CLI, API key, Bedrock, and Vertex AI authentication
