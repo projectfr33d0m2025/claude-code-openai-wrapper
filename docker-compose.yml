@@ -1,16 +1,28 @@
-version: '3'
+version: '3.8'
+
 services:
   claude-wrapper:
     build: .
+    container_name: claude-code-wrapper
     ports:
       - "8000:8000"
     volumes:
+      # Mount Claude auth tokens (read-write - Claude needs to write session/project data)
       - ~/.claude:/root/.claude
-      # Optional: Mount a specific workspace directory
-      # Uncomment and modify the line below to use a custom workspace
+      # Optional: Mount a workspace directory for Claude to work with
       # - ./workspace:/workspace
     environment:
       - PORT=8000
-      # Optional: Set Claude's working directory (defaults to isolated temp dir)
-      # Uncomment and modify the line below to set a custom working directory
+      - MAX_TIMEOUT=600000
+      - CORS_ORIGINS=["*"]
+      - DEFAULT_MODEL=claude-sonnet-4-5-20250929
+      - RATE_LIMIT_ENABLED=true
+      # Optional: Set Claude's working directory
       # - CLAUDE_CWD=/workspace
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
